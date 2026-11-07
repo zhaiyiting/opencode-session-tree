@@ -32,9 +32,17 @@ def main(argv=None) -> int:
     payload = to_payload(nodes, by_id, generated)
 
     errors = validate_payload(payload, raw)
-    if errors:
-        for error in errors:
+    hard = [
+        e for e in errors
+        if e.startswith(("missing sessions", "unknown sessions", "duplicate sessions"))
+    ]
+    for error in errors:
+        if error not in hard:
             print(f"warning: {error}", file=sys.stderr)
+    if hard:
+        for error in hard:
+            print(f"error: {error}", file=sys.stderr)
+        return 1
 
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "groups.json"), "w", encoding="utf-8") as fh:
@@ -42,7 +50,9 @@ def main(argv=None) -> int:
     with open(os.path.join(args.out, "session-tree.html"), "w", encoding="utf-8") as fh:
         fh.write(render_html(payload))
 
-    print(f"{len(threads)} threads, {len(raw.sessions)} sessions")
+    thread_total = sum(group.get("threadCount", 0) for group in payload["groups"])
+    session_total = sum(group.get("sessionCount", 0) for group in payload["groups"])
+    print(f"{thread_total} threads, {session_total} sessions")
     print(f"wrote {os.path.join(args.out, 'session-tree.html')}")
     return 0
 

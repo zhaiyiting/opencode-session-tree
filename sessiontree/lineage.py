@@ -20,6 +20,7 @@ class Thread:
     subagent_ids: list[str] = field(default_factory=list)
     fork_titles: dict[str, str] = field(default_factory=dict)
     subagent_titles: dict[str, str] = field(default_factory=dict)
+    subagent_agents: dict[str, str] = field(default_factory=dict)
     family_ids: list[str] = field(default_factory=list)
     user_text: str = ""
     assistant_text: str = ""
@@ -128,6 +129,7 @@ def build_threads(raw: RawData) -> list[Thread]:
         else:
             parent_thread.subagent_ids.append(sid)
             parent_thread.subagent_titles[sid] = row.title
+            parent_thread.subagent_agents[sid] = row.agent or ""
             thread_by_session[sid] = parent_thread
 
     # 4. deterministic order

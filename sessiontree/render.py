@@ -1,5 +1,5 @@
 import html
-import json
+from datetime import datetime, timezone
 
 CSS = """
 :root { color-scheme: light dark; }
@@ -24,18 +24,29 @@ mark { background: #ffd54f; color: #000; }
 JS = """
 const search = document.getElementById('search');
 const hideSubs = document.getElementById('hide-subagents');
+const hideForks = document.getElementById('hide-forks');
 function apply() {
   const q = search.value.trim().toLowerCase();
-  document.querySelectorAll('.thread, .group').forEach(el => {
+  document.querySelectorAll('.thread').forEach(el => {
     const text = (el.dataset.text || '').toLowerCase();
     el.classList.toggle('hidden', q !== '' && !text.includes(q));
+  });
+  Array.from(document.querySelectorAll('.group')).reverse().forEach(el => {
+    const own = q === '' || (el.dataset.text || '').toLowerCase().includes(q);
+    const kids = el.querySelectorAll('.thread:not(.hidden), .group:not(.hidden)').length > 0;
+    el.classList.toggle('hidden', q !== '' && !own && !kids);
+    if (q !== '' && (own || kids)) el.open = true;
   });
   document.querySelectorAll('.subagent').forEach(el => {
     el.classList.toggle('hidden', hideSubs.checked);
   });
+  document.querySelectorAll('.fork').forEach(el => {
+    el.classList.toggle('hidden', hideForks.checked);
+  });
 }
 search.addEventListener('input', apply);
 hideSubs.addEventListener('change', apply);
+hideForks.addEventListener('change', apply);
 document.getElementById('expand-all').addEventListener('click', () =>
   document.querySelectorAll('details').forEach(d => d.open = true));
 document.getElementById('collapse-all').addEventListener('click', () =>
@@ -47,6 +58,7 @@ document.querySelectorAll('.thread-title').forEach(el => {
   });
 });
 apply();
+window.__apply = apply;
 """
 
 
@@ -54,18 +66,42 @@ def _esc(value) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
-def _thread_html(thread: dict) -> str:
+def _timestamp(updated) -> datetime:
+    return datetime.fromtimestamp(int(updated) / 1000, tz=timezone.utc)
+
+
+def _relative(updated, generated_at: str) -> str:
+    try:
+        now = datetime.strptime(generated_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        now = datetime.now(timezone.utc)
+    days = (now - _timestamp(updated)).days
+    if days <= 0:
+        return "today"
+    return f"{days}d ago"
+
+
+def _thread_html(thread: dict, generated_at: str) -> str:
     text = " ".join([
         thread.get("title", ""), thread.get("prompt", ""),
         thread.get("model") or "", thread.get("agent") or "",
     ])
+    updated = thread.get("updated", 0)
     parts = [
         f'<div class="thread" data-text="{_esc(text)}">',
         f'<div class="thread-title">• {_esc(thread["title"])}'
         f'<span class="badge">{_esc(thread.get("model") or "")}</span>'
         f'<span class="badge">{thread.get("messages", 0)} msgs</span></div>',
-        f'<div class="detail hidden">{_esc(thread.get("prompt") or "")}\n\n'
-        f'opencode -s {_esc(thread["id"])}</div>',
+        f'<div class="detail hidden">'
+        f'<div><strong>{_esc(thread["title"])}</strong></div>'
+        f'<div class="when">{_esc(_relative(updated, generated_at))} · '
+        f'{_esc(_timestamp(updated).strftime("%Y-%m-%d"))}</div>'
+        f'<div class="facts">model: {_esc(thread.get("model") or "-")} · '
+        f'agent: {_esc(thread.get("agent") or "-")} · '
+        f'{thread.get("messages", 0)} messages</div>'
+        f'<div class="prompt">{_esc(thread.get("prompt") or "")}</div>'
+        f'<div class="resume">opencode -s {_esc(thread["id"])}</div>'
+        f'</div>',
         '<details><summary class="count">',
         f'{len(thread.get("forks") or [])} forks</summary>',
     ]
@@ -80,6 +116,7 @@ def _thread_html(thread: dict) -> str:
                      f'{len(thread["subagents"])} subagents</summary>')
         parts += [
             f'<div class="subagent">↳ {_esc(sub.get("title") or sub["id"])}'
+            f'<span class="badge">{_esc(sub.get("agent") or "")}</span>'
             f'<span class="badge">{_esc(sub["id"])}</span></div>'
             for sub in thread["subagents"]
         ]
@@ -88,16 +125,16 @@ def _thread_html(thread: dict) -> str:
     return "".join(parts)
 
 
-def _node_html(node: dict) -> str:
+def _node_html(node: dict, generated_at: str) -> str:
     label = _esc(node.get("label") or "")
     count = (f'<span class="count">{node.get("threadCount", 0)} threads · '
              f'{node.get("sessionCount", 0)} sessions</span>')
     text = " ".join([node.get("label", "")] + (node.get("keywords") or []))
     body = []
     if node.get("children"):
-        body += [_node_html(child) for child in node["children"]]
+        body += [_node_html(child, generated_at) for child in node["children"]]
     for thread in node.get("threads") or []:
-        body.append(_thread_html(thread))
+        body.append(_thread_html(thread, generated_at))
     cls = "group" + (" general" if node.get("label") == "General / Uncategorized" else "")
     return (
         f'<details class="{cls}" data-text="{_esc(text)}" open>'
@@ -110,7 +147,7 @@ def render_html(payload: dict) -> str:
     if not groups:
         groups = [{"label": "General / Uncategorized", "keywords": [],
                    "threadCount": 0, "sessionCount": 0, "threads": []}]
-    body = "".join(_node_html(node) for node in groups)
+    body = "".join(_node_html(node, payload.get("generatedAt", "")) for node in groups)
     total = sum(node.get("sessionCount", 0) for node in payload.get("groups") or [])
     threads = sum(node.get("threadCount", 0) for node in payload.get("groups") or [])
     return f"""<!doctype html>
@@ -121,6 +158,7 @@ def render_html(payload: dict) -> str:
 <div class="controls">
 <input id="search" type="search" placeholder="Search titles, prompts, groups...">
 <label><input id="hide-subagents" type="checkbox" checked> hide subagents</label>
+<label><input id="hide-forks" type="checkbox"> hide forks</label>
 <button id="expand-all">expand all</button>
 <button id="collapse-all">collapse all</button>
 </div>

@@ -1,4 +1,3 @@
-import json
 import sqlite3
 from dataclasses import dataclass
 from typing import Optional
@@ -41,8 +40,11 @@ from session
 
 TEXT_SQL = """
 select p.session_id, p.message_id, p.time_created as part_time,
-       m.time_created as message_time, m.data as message_data,
-       p.data as part_data
+       m.time_created as message_time,
+       json_extract(m.data, '$.role') as role,
+       json_extract(m.data, '$.modelID') as model,
+       json_extract(m.data, '$.agent') as agent,
+       json_extract(p.data, '$.text') as text
 from part p join message m on m.id = p.message_id
 where json_extract(p.data, '$.type') = 'text'
 order by m.time_created, p.time_created, p.id
@@ -63,16 +65,14 @@ def load_raw(db_path: str) -> RawData:
         }
         texts = []
         for r in con.execute(TEXT_SQL):
-            part = json.loads(r["part_data"])
-            text = part.get("text")
+            text = r["text"]
             if not text:
                 continue
-            message = json.loads(r["message_data"])
             texts.append(TextEvent(
                 session_id=r["session_id"], message_id=r["message_id"],
-                role=message.get("role", ""), text=text,
+                role=r["role"] or "", text=text,
                 message_time=r["message_time"], part_time=r["part_time"],
-                model=message.get("modelID"), agent=message.get("agent"),
+                model=r["model"], agent=r["agent"],
             ))
         return RawData(sessions=sessions, texts=texts)
     finally:

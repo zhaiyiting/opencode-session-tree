@@ -94,4 +94,8 @@ def build_vectors(threads: list[Thread]) -> tuple[dict[str, dict[str, float]], l
     for root_id, terms in acc.items():
         norm = math.sqrt(sum(v * v for v in terms.values())) or 1.0
         vectors[root_id] = {k: v / norm for k, v in terms.items()}
+
+    represented = set(vectors) | set(general)
+    missing = sorted(t.root_id for t in threads if t.root_id not in represented)
+    general.extend(missing)
     return vectors, general

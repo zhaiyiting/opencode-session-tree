@@ -26,7 +26,11 @@ def _thread(tid: str, threads: dict[str, Thread]) -> dict:
             for sid in thread.fork_ids
         ],
         "subagents": [
-            {"id": sid, "title": thread.subagent_titles.get(sid, sid)}
+            {
+                "id": sid,
+                "title": thread.subagent_titles.get(sid, sid),
+                "agent": thread.subagent_agents.get(sid, ""),
+            }
             for sid in thread.subagent_ids
         ],
     }

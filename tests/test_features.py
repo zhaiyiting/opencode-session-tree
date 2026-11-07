@@ -46,3 +46,20 @@ class VectorTest(unittest.TestCase):
     def test_family_text_includes_forks_and_excludes_subagents(self):
         self.assertIn("arenas", self.vectors["s_root1"])
         self.assertNotIn("scan", self.vectors["s_root1"])
+
+    def test_thread_whose_terms_are_all_filtered_goes_general(self):
+        from sessiontree.lineage import Thread
+        from sessiontree.load import TextEvent
+        event = TextEvent(
+            session_id="only", message_id="m1", role="user",
+            text="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", message_time=1,
+            part_time=1, model=None, agent=None,
+        )
+        thread = Thread(
+            root_id="only", title="x", prompt=event.text, updated=1,
+            model=None, agent=None, message_count=1, events=[event],
+            family_ids=["only"], user_text=event.text,
+        )
+        vectors, general = build_vectors([thread])
+        self.assertEqual(vectors, {})
+        self.assertEqual(general, ["only"])

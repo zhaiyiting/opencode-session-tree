@@ -71,3 +71,19 @@ def make_db(path):
     add("s_other_prompt", "m_op_u", "user", "explore this project", 300, 300)
     con.commit()
     con.close()
+
+
+def make_single_db(path):
+    con = sqlite3.connect(path)
+    con.executescript(SCHEMA)
+    con.execute(
+        "insert into session values (?,?,?,?,?,?,?,?,?,?,?)",
+        ("only", "global", None, "only", "/work/only", "Only session", "1", 1, 1, "build", "m"),
+    )
+    con.execute("insert into message values (?,?,?,?,?)",
+                ("m1", "only", 1, 1, _msg("user")))
+    con.execute("insert into part values (?,?,?,?,?,?)",
+                ("m1_p", "m1", "only", 1, 1,
+                 json.dumps({"type": "text", "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})))
+    con.commit()
+    con.close()
