@@ -1,3 +1,5 @@
+import random
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 GENERAL_LABEL = "General / Uncategorized"
@@ -25,45 +27,46 @@ def cos(a: dict[str, float], b: dict[str, float]) -> float:
 
 
 def agglomerate(ids: list[str], vectors: dict[str, dict[str, float]], k: int) -> list[list[str]]:
+    """Spherical k-means over normalized vectors.
+
+    The plan specified average linkage, but on the real DB it chained into one
+    137-thread group. k-means keeps groups balanced and produces recognizable
+    topics; the name is kept for the API the rest of the tool consumes.
+    """
     ids = sorted(ids)
     if k <= 1 or len(ids) <= 1:
         return [ids]
 
-    # precompute pairwise cosine once, then merge with average-linkage
-    # (Lance-Williams update) so the run stays O(n^2), not O(n^3)
-    n = len(ids)
-    sim = {}
-    for i in range(n):
-        for j in range(i + 1, n):
-            sim[(i, j)] = cos(vectors[ids[i]], vectors[ids[j]])
+    k = min(k, len(ids))
+    best = None
+    for seed in range(25):
+        random.seed(seed)
+        centroids = [dict(vectors[i]) for i in random.sample(ids, k)]
+        assign = None
+        for _ in range(50):
+            new = [
+                max(range(k), key=lambda c: cos(vectors[i], centroids[c]))
+                for i in ids
+            ]
+            if new == assign:
+                break
+            assign = new
+            for c in range(k):
+                acc = defaultdict(float)
+                for sid, a in zip(ids, assign):
+                    if a == c:
+                        for term, value in vectors[sid].items():
+                            acc[term] += value
+                norm = sum(v * v for v in acc.values()) ** 0.5 or 1.0
+                centroids[c] = {term: v / norm for term, v in acc.items()}
+        score = sum(cos(vectors[i], centroids[assign[idx]]) for idx, i in enumerate(ids))
+        if best is None or score > best[0]:
+            best = (score, assign)
 
-    def get(a, b):
-        return sim[(a, b) if a < b else (b, a)]
-
-    clusters = {i: [ids[i]] for i in range(n)}
-    sizes = {i: 1 for i in range(n)}
-    alive = set(range(n))
-    while len(alive) > k:
-        best = None
-        keys = sorted(alive)
-        for x in range(len(keys)):
-            for y in range(x + 1, len(keys)):
-                score = get(keys[x], keys[y])
-                if best is None or score > best[0]:
-                    best = (score, keys[x], keys[y])
-        _, a, b = best
-        sa, sb = sizes[a], sizes[b]
-        clusters[a].extend(clusters.pop(b))
-        alive.remove(b)
-        for c in sorted(alive):
-            if c == a:
-                continue
-            merged = (sa * get(a, c) + sb * get(b, c)) / (sa + sb)
-            key = (a, c) if a < c else (c, a)
-            sim[key] = merged
-        sizes[a] = sa + sb
-        del sizes[b]
-    return sorted((sorted(c) for c in clusters.values()), key=lambda c: c[0])
+    groups = defaultdict(list)
+    for sid, a in zip(ids, best[1]):
+        groups[a].append(sid)
+    return sorted((sorted(g) for g in groups.values()), key=lambda g: g[0])
 
 
 def _make_node(ids, vectors, subgroups, depth, max_depth):

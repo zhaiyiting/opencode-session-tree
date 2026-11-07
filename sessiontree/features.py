@@ -10,6 +10,17 @@ be been being it its as at by from not no but if then than so such can could
 should would will may might do does did have has had you your we our they
 their them he she his her i me my mine us also use used using into about over
 under more most other some any all each both very just only own same too now
+how what why when where which who project projects build let make made want
+need need get got run running check one two new create created add change
+update file files folder directory repo repository code task tasks work working
+current start starting show tell give take see look like
+""".split())
+
+# CJK bigrams containing these characters are mostly grammar, not topic.
+CJK_SKIP_CHARS = set("的了是在我你他她它们这那个什么如何一不有和与或也就都还要会能可以为对把被让给从到向上中里外前后")
+CJK_STOP = set("""
+项目 这个 一个 我们 什么 怎么 如何 可以 需要 现在 还是 就是 因为 所以 但是
+如果 然后 已经 没有 不是 这样 那样 这些 那些 问题 内容 文件 代码 工作 使用
 """.split())
 
 ASCII_TOKEN = re.compile(r"[a-z0-9_./:+-]{3,}")
@@ -24,7 +35,12 @@ def tokenize(text: str) -> list[str]:
         if w not in STOPWORDS and not w.startswith("http")
     ]
     cjk = CJK_CHAR.findall(lowered)
-    bigrams = ["".join(cjk[i:i + 2]) for i in range(len(cjk) - 1)]
+    bigrams = [
+        "".join(cjk[i:i + 2])
+        for i in range(len(cjk) - 1)
+        if not (set(cjk[i:i + 2]) & CJK_SKIP_CHARS)
+        and "".join(cjk[i:i + 2]) not in CJK_STOP
+    ]
     return words + bigrams
 
 
